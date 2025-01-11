@@ -1,6 +1,6 @@
 {
   "name": "@denis_bruns/clean-architecture-core",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Clean architecture implementation",
   "main": "dist/index.js",
   "types": "dist/types/index.d.ts",
@@ -16,7 +16,8 @@
     "dist/types"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run postbuild",
+    "postbuild": "cp package.json README.md dist/",
     "lint": "eslint src/lib --ext .ts",
     "clean": "rimraf dist",
     "prepublishOnly": "npm cache clean && npm run build",

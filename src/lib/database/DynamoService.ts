@@ -18,11 +18,17 @@ export class DynamoDBService {
   async fetchWithFiltersAndPagination<T>(
     query: IGenericFilterQuery,
     dynamoDBClient: DynamoDBClient
-  ): Promise<T[]> {
+  ): Promise<{ data: T[]; total: number }> {
     try {
       const { params, limit, offset } = await this.prepareQueryParameters(query);
       const items = await this.executeQuery(params, dynamoDBClient);
-      return this.processResults<T>(items, limit, offset);
+
+      // `total` is the overall count of items that match before pagination is applied.
+      const total = items.length;
+
+      // Apply pagination slicing.
+      const data = this.processResults<T>(items, limit, offset);
+      return { data, total };
     } catch (error) {
       this.handleError(error);
       throw error;
@@ -140,7 +146,7 @@ export function fetchWithFiltersAndPagination<T>(
   query: IGenericFilterQuery,
   dynamoDBClient: DynamoDBClient,
   pkName = "id"
-): Promise<T[]> {
+): Promise<{ data: T[]; total: number }> {
   const service = new DynamoDBService(tableName, pkName);
   return service.fetchWithFiltersAndPagination<T>(query, dynamoDBClient);
 }
