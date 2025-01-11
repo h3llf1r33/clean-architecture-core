@@ -3,7 +3,7 @@ import { IGenericFilterQuery, IPaginationQuery } from "../interfaces/IFilterQuer
 import { DynamoValidationError, validateFieldName } from "./DynamoValidator";
 import { validatePagination } from "./DynamoValidator";
 import { DynamoDBExpressionBuilder } from "./DynamoExpressionBuilder";
-import { mapDynamoDBItemToType } from "./DynamoUtils";
+import { fromDynamoDBValue, mapDynamoDBItemToType } from "./DynamoUtils";
 
 export class DynamoDBService {
   private readonly expressionBuilder: DynamoDBExpressionBuilder;
@@ -123,14 +123,39 @@ export class DynamoDBService {
   ): Promise<any[]> {
     let response;
 
-    if ('KeyConditionExpression' in params) {
+    if ("KeyConditionExpression" in params) {
       console.log("Executing Query with params:", JSON.stringify(params, null, 2));
       response = await dynamoDBClient.send(new QueryCommand(params as QueryCommandInput));
     } else {
       console.log("Executing Scan with params:", JSON.stringify(params, null, 2));
       response = await dynamoDBClient.send(new ScanCommand(params as ScanCommandInput));
     }
-    return response.Items || [];
+
+    let items = response.Items || [];
+
+    // Nur im Query-Fall mit vorhandenen ExpressionAttributeNames und definiertem "#sortKey"
+    if ("KeyConditionExpression" in params && params.ExpressionAttributeNames?.["#sortKey"]) {
+      const queryParams = params as QueryCommandInput;
+      // Fallback: Falls ExpressionAttributeNames undefined ist, wird ein leeres Objekt verwendet.
+      const sortKey = Object.entries(queryParams.ExpressionAttributeNames ?? {})
+        .find(([alias]) => alias === "#sortKey")?.[1];
+
+      if (sortKey) {
+        const scanForward = queryParams.ScanIndexForward !== false;
+        items = [...items].sort((a, b) => {
+          const aVal = fromDynamoDBValue(a[sortKey]);
+          const bVal = fromDynamoDBValue(b[sortKey]);
+
+          if (typeof aVal === "string" && typeof bVal === "string") {
+            return scanForward ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+          }
+
+          return scanForward ? (aVal > bVal ? 1 : -1) : (bVal > aVal ? 1 : -1);
+        });
+      }
+    }
+
+    return items;
   }
 
   private processResults<T>(
