@@ -141,12 +141,9 @@ export function serializeGenericFilterQuery(query: IGenericFilterQuery): string 
     }
 
     if (query.pagination) {
-        const { sortBy, sortDirection, ...paginationParams } = query.pagination;
-        params.pagination = encodeURIComponent(JSON.stringify(paginationParams));
-        
-        // Add sorting parameters separately
-        if (sortBy) params.sortBy = encodeURIComponent(sortBy);
-        if (sortDirection) params.sortDirection = encodeURIComponent(sortDirection);
+        // Instead of stripping out sortBy and sortDirection,
+        // include them in the pagination JSON.
+        params.pagination = encodeURIComponent(JSON.stringify(query.pagination));
     }
 
     const queryString = Object.entries(params)
@@ -155,6 +152,7 @@ export function serializeGenericFilterQuery(query: IGenericFilterQuery): string 
 
     return queryString ? `?${queryString}` : '';
 }
+
 
 /**
  * Deserializes URL query parameters into IGenericFilterQuery.
@@ -165,8 +163,6 @@ export function deserializeGenericFilterQuery(queryString: string): IGenericFilt
     const params = new URLSearchParams(queryString);
     const filtersParam = params.get('filters');
     const paginationParam = params.get('pagination');
-    const sortBy = params.get('sortBy');
-    const sortDirection = params.get('sortDirection');
 
     let filters: IFilterQuery[] = [];
     let pagination: IPaginationQuery = {};
@@ -182,20 +178,7 @@ export function deserializeGenericFilterQuery(queryString: string): IGenericFilt
 
     try {
         if (paginationParam) {
-            const parsedPagination: IPaginationQuery = JSON.parse(decodeURIComponent(paginationParam));
-            pagination = {
-                page: typeof parsedPagination.page === 'number' ? parsedPagination.page : undefined,
-                limit: typeof parsedPagination.limit === 'number' ? parsedPagination.limit : undefined,
-                offset: typeof parsedPagination.offset === 'number' ? parsedPagination.offset : undefined,
-            };
-        }
-        
-        // Add sorting parameters if present
-        if (sortBy) {
-            pagination.sortBy = decodeURIComponent(sortBy);
-        }
-        if (sortDirection && ['asc', 'desc'].includes(sortDirection.toLowerCase())) {
-            pagination.sortDirection = decodeURIComponent(sortDirection) as 'asc' | 'desc';
+            pagination = JSON.parse(decodeURIComponent(paginationParam));
         }
     } catch (error) {
         console.error('Error parsing pagination:', error);
@@ -203,6 +186,7 @@ export function deserializeGenericFilterQuery(queryString: string): IGenericFilt
 
     return { filters, pagination };
 }
+
 
 export const extractGenericFilterQueryFromEvent = (event: APIGatewayProxyEvent): IGenericFilterQuery => {
     const queryParams = event.queryStringParameters || {};
