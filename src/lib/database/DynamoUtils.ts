@@ -1,7 +1,6 @@
 import { AttributeValue } from "@aws-sdk/client-dynamodb";
 import { DynamoValidationError } from "./DynamoValidator";
 
-
 export function toDynamoDBValue(value: any): AttributeValue {
   if (value === null || value === undefined) {
     throw new DynamoValidationError("Value cannot be null or undefined");

@@ -2,6 +2,7 @@ import { toDynamoDBValue } from "./DynamoUtils";
 import { IFilterQuery } from "../interfaces/IFilterQuery";
 import { DynamoValidationError } from "./DynamoValidator";
 import { validateFieldName, validateValue } from "./DynamoValidator";
+
 export class DynamoDBExpressionBuilder {
   private readonly operatorMap: Record<string, string> = {
     "<": "<",

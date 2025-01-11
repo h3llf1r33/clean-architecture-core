@@ -20,10 +20,10 @@ export class DynamoDBService {
     dynamoDBClient: DynamoDBClient
   ): Promise<{ data: T[]; total: number }> {
     try {
-      const { params, limit, offset } = await this.prepareQueryParameters(query);
-      const items = await this.executeQuery(params, dynamoDBClient);
+      const { params, limit, offset, pagination } = await this.prepareQueryParameters(query);
+      const items = await this.executeQuery(params, dynamoDBClient, pagination);
 
-      // `total` is the overall count of items that match before pagination is applied.
+      // total is the overall count of items that match before pagination is applied.
       const total = items.length;
 
       // Apply pagination slicing.
@@ -39,20 +39,22 @@ export class DynamoDBService {
     params: QueryCommandInput | ScanCommandInput;
     limit: number;
     offset: number;
+    pagination: IPaginationQuery;
   }> {
     const { pagination = {}, filters = [] } = query;
     validatePagination(pagination);
 
     const { limit, offset } = this.calculatePaginationValues(pagination);
     if (limit === 0) {
-      return { params: { TableName: this.tableName }, limit: 0, offset: 0 };
+      return { params: { TableName: this.tableName }, limit: 0, offset: 0, pagination };
     }
 
     const expr = this.expressionBuilder.buildFilterExpression(filters);
     return {
-      params: this.buildQueryParams(expr),
+      params: this.buildQueryParams(expr, pagination),
       limit,
-      offset
+      offset,
+      pagination
     };
   }
 
@@ -86,6 +88,7 @@ export class DynamoDBService {
         TableName: this.tableName
     };
 
+    // If a partition key filter exists, use Query and add KeyConditionExpression.
     if (KeyConditionExpression) {
         const queryParams = params as QueryCommandInput;
         queryParams.KeyConditionExpression = KeyConditionExpression;
@@ -119,7 +122,8 @@ export class DynamoDBService {
 
   private async executeQuery(
     params: QueryCommandInput | ScanCommandInput,
-    dynamoDBClient: DynamoDBClient
+    dynamoDBClient: DynamoDBClient,
+    pagination: IPaginationQuery
   ): Promise<any[]> {
     let response;
 
@@ -133,26 +137,20 @@ export class DynamoDBService {
 
     let items = response.Items || [];
 
-    // Nur im Query-Fall mit vorhandenen ExpressionAttributeNames und definiertem "#sortKey"
-    if ("KeyConditionExpression" in params && params.ExpressionAttributeNames?.["#sortKey"]) {
-      const queryParams = params as QueryCommandInput;
-      // Fallback: Falls ExpressionAttributeNames undefined ist, wird ein leeres Objekt verwendet.
-      const sortKey = Object.entries(queryParams.ExpressionAttributeNames ?? {})
-        .find(([alias]) => alias === "#sortKey")?.[1];
+    // Even if a Query is executed, if sorting was not applied by DynamoDB (or when using Scan)
+    // we perform client-side sorting when pagination.sortBy is provided.
+    if (pagination && pagination.sortBy) {
+      const sortKey = pagination.sortBy;
+      const scanForward = pagination.sortDirection !== 'desc';
+      items = [...items].sort((a, b) => {
+        const aVal = fromDynamoDBValue(a[sortKey]);
+        const bVal = fromDynamoDBValue(b[sortKey]);
 
-      if (sortKey) {
-        const scanForward = queryParams.ScanIndexForward !== false;
-        items = [...items].sort((a, b) => {
-          const aVal = fromDynamoDBValue(a[sortKey]);
-          const bVal = fromDynamoDBValue(b[sortKey]);
-
-          if (typeof aVal === "string" && typeof bVal === "string") {
-            return scanForward ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-          }
-
-          return scanForward ? (aVal > bVal ? 1 : -1) : (bVal > aVal ? 1 : -1);
-        });
-      }
+        if (typeof aVal === "string" && typeof bVal === "string") {
+          return scanForward ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return scanForward ? (aVal > bVal ? 1 : -1) : (bVal > aVal ? 1 : -1);
+      });
     }
 
     return items;
@@ -181,6 +179,7 @@ export class DynamoDBService {
 }
 
 // Re-export the original function for backward compatibility
+
 export function fetchWithFiltersAndPagination<T>(
   tableName: string,
   query: IGenericFilterQuery,

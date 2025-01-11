@@ -1,6 +1,6 @@
 {
   "name": "@denis_bruns/clean-architecture-core",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Clean architecture implementation",
   "main": "dist/index.js",
   "types": "dist/types/index.d.ts",
