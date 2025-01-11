@@ -12,6 +12,8 @@ export interface IPaginationQuery {
     page?: number;
     limit?: number;
     offset?: number;
+    sortBy?: string;
+    sortDirection?: 'asc' | 'desc';
 }
 
 export interface IPaginatedResponse<T> {
@@ -132,14 +134,19 @@ export function serializeGenericFilterQuery(query: IGenericFilterQuery): string 
         field: data.field,
         operator: data.operator,
         value: sanitizeValue(data.value)
-    }))
+    }));
+
     if (query.filters && query.filters.length > 0) {
-        // Ensure that JSON.stringify maintains the correct data types
         params.filters = encodeURIComponent(JSON.stringify(query.filters));
     }
 
     if (query.pagination) {
-        params.pagination = encodeURIComponent(JSON.stringify(query.pagination));
+        const { sortBy, sortDirection, ...paginationParams } = query.pagination;
+        params.pagination = encodeURIComponent(JSON.stringify(paginationParams));
+        
+        // Add sorting parameters separately
+        if (sortBy) params.sortBy = encodeURIComponent(sortBy);
+        if (sortDirection) params.sortDirection = encodeURIComponent(sortDirection);
     }
 
     const queryString = Object.entries(params)
@@ -158,6 +165,8 @@ export function deserializeGenericFilterQuery(queryString: string): IGenericFilt
     const params = new URLSearchParams(queryString);
     const filtersParam = params.get('filters');
     const paginationParam = params.get('pagination');
+    const sortBy = params.get('sortBy');
+    const sortDirection = params.get('sortDirection');
 
     let filters: IFilterQuery[] = [];
     let pagination: IPaginationQuery = {};
@@ -174,13 +183,19 @@ export function deserializeGenericFilterQuery(queryString: string): IGenericFilt
     try {
         if (paginationParam) {
             const parsedPagination: IPaginationQuery = JSON.parse(decodeURIComponent(paginationParam));
-            // Only include relevant pagination parameters
-            const sanitizedPagination: IPaginationQuery = {
+            pagination = {
                 page: typeof parsedPagination.page === 'number' ? parsedPagination.page : undefined,
                 limit: typeof parsedPagination.limit === 'number' ? parsedPagination.limit : undefined,
                 offset: typeof parsedPagination.offset === 'number' ? parsedPagination.offset : undefined,
             };
-            pagination = sanitizedPagination;
+        }
+        
+        // Add sorting parameters if present
+        if (sortBy) {
+            pagination.sortBy = decodeURIComponent(sortBy);
+        }
+        if (sortDirection && ['asc', 'desc'].includes(sortDirection.toLowerCase())) {
+            pagination.sortDirection = decodeURIComponent(sortDirection) as 'asc' | 'desc';
         }
     } catch (error) {
         console.error('Error parsing pagination:', error);

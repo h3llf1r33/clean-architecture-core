@@ -1,6 +1,6 @@
 import { DynamoDBClient, QueryCommand, ScanCommand, QueryCommandInput, ScanCommandInput } from "@aws-sdk/client-dynamodb";
 import { IGenericFilterQuery, IPaginationQuery } from "../interfaces/IFilterQuery";
-import { DynamoValidationError } from "./DynamoValidator";
+import { DynamoValidationError, validateFieldName } from "./DynamoValidator";
 import { validatePagination } from "./DynamoValidator";
 import { DynamoDBExpressionBuilder } from "./DynamoExpressionBuilder";
 import { mapDynamoDBItemToType } from "./DynamoUtils";
@@ -71,32 +71,47 @@ export class DynamoDBService {
     }
   
     return { limit, offset };
-}  
+  }  
   
 
-  private buildQueryParams(expr: any): QueryCommandInput | ScanCommandInput {
+  private buildQueryParams(expr: any, pagination?: IPaginationQuery): QueryCommandInput | ScanCommandInput {
     const { 
-      KeyConditionExpression, 
-      FilterExpression,
-      ExpressionAttributeNames,
-      ExpressionAttributeValues 
+        KeyConditionExpression, 
+        FilterExpression,
+        ExpressionAttributeNames,
+        ExpressionAttributeValues 
     } = expr;
 
     const params: QueryCommandInput | ScanCommandInput = { 
-      TableName: this.tableName
+        TableName: this.tableName
     };
 
     if (KeyConditionExpression) {
-      (params as QueryCommandInput).KeyConditionExpression = KeyConditionExpression;
+        const queryParams = params as QueryCommandInput;
+        queryParams.KeyConditionExpression = KeyConditionExpression;
+        
+        // Add sorting only for Query operations and if sortBy is specified
+        if (pagination?.sortBy) {
+            validateFieldName(pagination.sortBy);
+            queryParams.ExpressionAttributeNames = queryParams.ExpressionAttributeNames || {};
+            queryParams.ExpressionAttributeNames['#sortKey'] = pagination.sortBy;
+            queryParams.ScanIndexForward = pagination.sortDirection !== 'desc';
+        }
     }
+
     if (FilterExpression) {
-      params.FilterExpression = FilterExpression;
+        params.FilterExpression = FilterExpression;
     }
+
     if (ExpressionAttributeNames) {
-      params.ExpressionAttributeNames = ExpressionAttributeNames;
+        params.ExpressionAttributeNames = {
+            ...params.ExpressionAttributeNames,
+            ...ExpressionAttributeNames
+        };
     }
+
     if (ExpressionAttributeValues) {
-      params.ExpressionAttributeValues = ExpressionAttributeValues;
+        params.ExpressionAttributeValues = ExpressionAttributeValues;
     }
 
     return params;
