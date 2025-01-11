@@ -214,13 +214,20 @@ export const extractGenericFilterQueryFromEvent = (event: APIGatewayProxyEvent):
             operator: filter.operator as IOperator,
             value: filter.value,
         };
-    }).map(filter => validateAndSanitizeFilter(filter)); // Ensure sanitization
+    }).map(filter => validateAndSanitizeFilter(filter));
 
     const pagination: IPaginationQuery = {
         page: parseInt(queryParams.page || "1", 10),
         limit: parseInt(queryParams.limit || "10", 10),
         offset: parseInt(queryParams.offset || "0", 10),
+        sortBy: queryParams.sortBy,
+        sortDirection: queryParams.sortDirection as 'asc' | 'desc' | undefined
     };
+
+    // Validate sort direction
+    if (pagination.sortDirection && !['asc', 'desc'].includes(pagination.sortDirection)) {
+        pagination.sortDirection = undefined;
+    }
 
     return {
         filters,
