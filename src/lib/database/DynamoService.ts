@@ -22,11 +22,8 @@ export class DynamoDBService {
     try {
       const { params, limit, offset, pagination } = await this.prepareQueryParameters(query);
       const items = await this.executeQuery(params, dynamoDBClient, pagination);
-
-      // total is the overall count of items that match before pagination is applied.
       const total = items.length;
 
-      // Apply pagination slicing.
       const data = this.processResults<T>(items, limit, offset);
       return { data, total };
     } catch (error) {
@@ -60,61 +57,52 @@ export class DynamoDBService {
 
   private calculatePaginationValues(pagination: IPaginationQuery): { limit: number; offset: number } {
     let { page = 1, limit = 100, offset } = pagination;
-  
-    // Ensure page is a positive integer, default to 1 if invalid
     page = Math.max(1, Math.floor(page));
-  
-    // Ensure limit is a non-negative integer, default to 100 if invalid
     limit = Math.max(0, Math.floor(limit));
-  
-    // Calculate offset only if it's not a valid number or is less than 0
     if (typeof offset !== "number" || offset < 0) {
       offset = (page - 1) * limit;
     }
-  
     return { limit, offset };
-  }  
-  
+  }
 
   private buildQueryParams(expr: any, pagination?: IPaginationQuery): QueryCommandInput | ScanCommandInput {
     const { 
-        KeyConditionExpression, 
-        FilterExpression,
-        ExpressionAttributeNames,
-        ExpressionAttributeValues 
+      KeyConditionExpression, 
+      FilterExpression,
+      ExpressionAttributeNames,
+      ExpressionAttributeValues 
     } = expr;
 
     const params: QueryCommandInput | ScanCommandInput = { 
-        TableName: this.tableName
+      TableName: this.tableName
     };
 
-    // If a partition key filter exists, use Query and add KeyConditionExpression.
+    // Use Query if we have a partition key filter.
     if (KeyConditionExpression) {
-        const queryParams = params as QueryCommandInput;
-        queryParams.KeyConditionExpression = KeyConditionExpression;
-        
-        // Add sorting only for Query operations and if sortBy is specified
-        if (pagination?.sortBy) {
-            validateFieldName(pagination.sortBy);
-            queryParams.ExpressionAttributeNames = queryParams.ExpressionAttributeNames || {};
-            queryParams.ExpressionAttributeNames['#sortKey'] = pagination.sortBy;
-            queryParams.ScanIndexForward = pagination.sortDirection !== 'desc';
-        }
+      const queryParams = params as QueryCommandInput;
+      queryParams.KeyConditionExpression = KeyConditionExpression;
+
+      // Add sorting only for Query operations and if sortBy is specified.
+      if (pagination?.sortBy) {
+        validateFieldName(pagination.sortBy);
+        queryParams.ExpressionAttributeNames = queryParams.ExpressionAttributeNames || {};
+        // The alias "#sortKey" will be used by DynamoDB if your index supports a sort key.
+        queryParams.ExpressionAttributeNames['#sortKey'] = pagination.sortBy;
+        queryParams.ScanIndexForward = pagination.sortDirection !== 'desc';
+      }
     }
 
     if (FilterExpression) {
-        params.FilterExpression = FilterExpression;
+      params.FilterExpression = FilterExpression;
     }
-
     if (ExpressionAttributeNames) {
-        params.ExpressionAttributeNames = {
-            ...params.ExpressionAttributeNames,
-            ...ExpressionAttributeNames
-        };
+      params.ExpressionAttributeNames = {
+        ...params.ExpressionAttributeNames,
+        ...ExpressionAttributeNames
+      };
     }
-
     if (ExpressionAttributeValues) {
-        params.ExpressionAttributeValues = ExpressionAttributeValues;
+      params.ExpressionAttributeValues = ExpressionAttributeValues;
     }
 
     return params;
@@ -126,7 +114,6 @@ export class DynamoDBService {
     pagination: IPaginationQuery
   ): Promise<any[]> {
     let response;
-
     if ("KeyConditionExpression" in params) {
       console.log("Executing Query with params:", JSON.stringify(params, null, 2));
       response = await dynamoDBClient.send(new QueryCommand(params as QueryCommandInput));
@@ -137,30 +124,41 @@ export class DynamoDBService {
 
     let items = response.Items || [];
 
-    // Even if a Query is executed, if sorting was not applied by DynamoDB (or when using Scan)
-    // we perform client-side sorting when pagination.sortBy is provided.
+    // If a sortBy is provided, enforce client-side sorting.
     if (pagination && pagination.sortBy) {
       const sortKey = pagination.sortBy;
       const scanForward = pagination.sortDirection !== 'desc';
-      items = [...items].sort((a, b) => {
-        const aVal = fromDynamoDBValue(a[sortKey]);
-        const bVal = fromDynamoDBValue(b[sortKey]);
 
+      // Log a sample of items with the sort key.
+      console.log("Sorting items by key:", sortKey);
+      items.slice(0, 5).forEach((item, index) => {
+        const val = fromDynamoDBValue(item[sortKey] || { S: "" });
+        console.log(`Item ${index} sort value:`, val);
+      });
+
+      items = [...items].sort((a, b) => {
+        let aVal = a[sortKey] ? fromDynamoDBValue(a[sortKey]) : "";
+        let bVal = b[sortKey] ? fromDynamoDBValue(b[sortKey]) : "";
+        
+        // Log comparison details if needed.
+        // console.log("Comparing", aVal, "with", bVal);
         if (typeof aVal === "string" && typeof bVal === "string") {
           return scanForward ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
         }
-        return scanForward ? (aVal > bVal ? 1 : -1) : (bVal > aVal ? 1 : -1);
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return scanForward ? aVal - bVal : bVal - aVal;
+        }
+        // For mixed or other types fallback to string comparison.
+        aVal = String(aVal);
+        bVal = String(bVal);
+        return scanForward ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       });
     }
 
     return items;
   }
 
-  private processResults<T>(
-    items: any[],
-    limit: number,
-    offset: number
-  ): T[] {
+  private processResults<T>(items: any[], limit: number, offset: number): T[] {
     if (limit === 0) return [];
     if (offset >= items.length) return [];
 
@@ -178,8 +176,7 @@ export class DynamoDBService {
   }
 }
 
-// Re-export the original function for backward compatibility
-
+// For backward compatibility.
 export function fetchWithFiltersAndPagination<T>(
   tableName: string,
   query: IGenericFilterQuery,
